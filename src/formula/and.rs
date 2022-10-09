@@ -5,15 +5,16 @@ use nom::combinator::map;
 use nom::multi::fold_many0;
 use nom::sequence::preceded;
 use nom::IResult;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::ops;
 
-use super::{atom, in_brackets, not, Evaluative};
+use super::{atom, in_brackets, not};
 use crate::formula::atom::Atom;
 use crate::formula::in_brackets::InBrackets;
 use crate::formula::not::Not;
+use crate::{ContainVariable, Evaluatable};
 
-#[enum_dispatch(Evaluative)]
+#[enum_dispatch(Evaluatable, ContainVariable)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AndOperand {
     Atom,
@@ -29,7 +30,7 @@ where
     type Output = And;
 
     fn bitand(self, rhs: T) -> Self::Output {
-        And(self, rhs.into()).into()
+        And(self, rhs.into())
     }
 }
 
@@ -44,10 +45,17 @@ fn parse_higher_priority_operand(code: &str) -> IResult<&str, AndOperand> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct And(pub(crate) AndOperand, pub(crate) AndOperand);
 
-impl Evaluative for And {
+impl Evaluatable for And {
     fn eval(&self, ctx: &HashMap<String, bool>) -> bool {
         let And(lhs, rhs) = self;
         lhs.eval(ctx) && rhs.eval(ctx)
+    }
+}
+
+impl ContainVariable for And {
+    fn variables(&self) -> BTreeSet<String> {
+        let And(lhs, rhs) = self;
+        lhs.variables().union(&rhs.variables()).cloned().collect()
     }
 }
 
@@ -115,5 +123,13 @@ mod tests {
         assert_eq!(x_and_y.eval(&ctx), false);
         assert_eq!(x_and_not_y.eval(&ctx), true);
         assert_eq!(x_and_y_and_z.eval(&ctx), false);
+    }
+
+    #[test]
+    fn test_variables() {
+        let result = parse("x&y").unwrap().1.variables();
+        assert!(result.contains("x"));
+        assert!(result.contains("y"));
+        assert!(!result.contains("z"));
     }
 }

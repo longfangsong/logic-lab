@@ -2,8 +2,8 @@ use nom::{
     branch::alt, bytes::complete::tag, character::complete::alpha1, combinator::map, IResult,
 };
 
-use super::Evaluative;
-use std::collections::HashMap;
+use crate::{ContainVariable, Evaluatable};
+use std::collections::{BTreeSet, HashMap};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Atom {
@@ -11,11 +11,20 @@ pub enum Atom {
     Const(bool),
 }
 
-impl Evaluative for Atom {
+impl Evaluatable for Atom {
     fn eval(&self, ctx: &HashMap<String, bool>) -> bool {
         match self {
             Atom::Variable(x) => *ctx.get(x).unwrap(),
             Atom::Const(c) => *c,
+        }
+    }
+}
+
+impl ContainVariable for Atom {
+    fn variables(&self) -> BTreeSet<String> {
+        match self {
+            Atom::Variable(x) => [x.clone()].into_iter().collect(),
+            Atom::Const(_) => BTreeSet::new(),
         }
     }
 }
@@ -56,5 +65,15 @@ mod tests {
         assert_eq!(x.eval(&ctx), true);
         let y = Atom::Variable("y".to_string());
         assert_eq!(y.eval(&ctx), false);
+    }
+
+    #[test]
+    fn test_variables() {
+        let result = parse("x").unwrap().1.variables();
+        assert!(result.contains("x"));
+        assert!(!result.contains("y"));
+        let result = parse("1").unwrap().1.variables();
+        assert!(!result.contains("x"));
+        assert!(!result.contains("y"));
     }
 }

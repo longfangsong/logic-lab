@@ -8,7 +8,7 @@ use nom::branch::alt;
 use nom::combinator::map;
 use nom::IResult;
 
-#[enum_dispatch(Evaluative)]
+#[enum_dispatch(Evaluatable, ContainVariable)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Expression {
     Atom,
@@ -30,7 +30,7 @@ pub fn parse(code: &str) -> IResult<&str, Expression> {
 
 #[cfg(test)]
 mod tests {
-    use crate::formula::Evaluative;
+    use crate::{ContainVariable, Evaluatable};
 
     use std::collections::HashMap;
 
@@ -63,5 +63,14 @@ mod tests {
         ctx.insert("b".to_string(), false);
         ctx.insert("c".to_string(), true);
         assert_eq!(parse("!(a&b)|c").unwrap().1.eval(&ctx), true);
+    }
+
+    #[test]
+    fn test_variables() {
+        let result = parse("!(a&b)|c").unwrap().1.variables();
+        assert!(result.contains("a"));
+        assert!(result.contains("b"));
+        assert!(result.contains("c"));
+        assert!(!result.contains("d"));
     }
 }

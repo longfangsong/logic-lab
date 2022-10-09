@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use enum_dispatch::enum_dispatch;
 use nom::branch::alt;
@@ -9,9 +9,11 @@ use nom::IResult;
 
 use super::atom::Atom;
 use super::in_brackets::InBrackets;
-use super::{atom, in_brackets, Evaluative};
+use super::{atom, in_brackets};
 
-#[enum_dispatch(Evaluative)]
+use crate::{ContainVariable, Evaluatable};
+
+#[enum_dispatch(Evaluatable, ContainVariable)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum NotOperand {
     Atom,
@@ -22,9 +24,15 @@ pub(crate) enum NotOperand {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Not(pub(crate) NotOperand);
 
-impl Evaluative for Not {
+impl Evaluatable for Not {
     fn eval(&self, ctx: &HashMap<String, bool>) -> bool {
         !self.0.eval(ctx)
+    }
+}
+
+impl ContainVariable for Not {
+    fn variables(&self) -> BTreeSet<String> {
+        self.0.variables()
     }
 }
 
@@ -70,5 +78,12 @@ mod tests {
         ctx.insert("x".to_string(), false);
         assert_eq!(not_x.eval(&ctx), true);
         assert_eq!(not_not_x.eval(&ctx), false);
+    }
+
+    #[test]
+    fn test_variables() {
+        let result = parse("!x").unwrap().1.variables();
+        assert!(result.contains("x"));
+        assert!(!result.contains("y"));
     }
 }

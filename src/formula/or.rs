@@ -1,11 +1,12 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::ops;
 
-use super::{and, atom, in_brackets, not, Evaluative};
+use super::{and, atom, in_brackets, not};
 use crate::formula::and::And;
 use crate::formula::atom::Atom;
 use crate::formula::in_brackets::InBrackets;
 use crate::formula::not::Not;
+use crate::{ContainVariable, Evaluatable};
 use enum_dispatch::enum_dispatch;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
@@ -13,7 +14,8 @@ use nom::combinator::map;
 use nom::multi::fold_many0;
 use nom::sequence::preceded;
 use nom::IResult;
-#[enum_dispatch(Evaluative)]
+
+#[enum_dispatch(Evaluatable, ContainVariable)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum OrOperand {
     Atom,
@@ -30,7 +32,7 @@ where
     type Output = Or;
 
     fn bitor(self, rhs: T) -> Self::Output {
-        Or(self, rhs.into()).into()
+        Or(self, rhs.into())
     }
 }
 
@@ -46,10 +48,17 @@ fn parse_higher_priority_operand(code: &str) -> IResult<&str, OrOperand> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Or(pub(crate) OrOperand, pub(crate) OrOperand);
 
-impl Evaluative for Or {
+impl Evaluatable for Or {
     fn eval(&self, ctx: &HashMap<String, bool>) -> bool {
         let Or(lhs, rhs) = self;
         lhs.eval(ctx) || rhs.eval(ctx)
+    }
+}
+
+impl ContainVariable for Or {
+    fn variables(&self) -> BTreeSet<String> {
+        let Or(lhs, rhs) = self;
+        lhs.variables().union(&rhs.variables()).cloned().collect()
     }
 }
 
@@ -105,5 +114,14 @@ mod tests {
         assert_eq!(x_or_y_and_z.eval(&ctx), true);
         ctx.insert("x".to_string(), false);
         assert_eq!(x_or_y_and_z.eval(&ctx), false);
+    }
+
+    #[test]
+    fn test_variables() {
+        let result = parse("x|y&z").unwrap().1.variables();
+        assert!(result.contains("x"));
+        assert!(result.contains("y"));
+        assert!(result.contains("z"));
+        assert!(!result.contains("w"));
     }
 }

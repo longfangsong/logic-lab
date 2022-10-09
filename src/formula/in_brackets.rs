@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 
 use nom::bytes::complete::tag;
@@ -6,15 +7,21 @@ use nom::sequence::delimited;
 use nom::IResult;
 
 use super::expression;
-use super::Evaluative;
 use super::Expression;
+use crate::{ContainVariable, Evaluatable};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InBrackets(pub Box<Expression>);
 
-impl Evaluative for InBrackets {
+impl Evaluatable for InBrackets {
     fn eval(&self, ctx: &HashMap<String, bool>) -> bool {
         self.0.eval(ctx)
+    }
+}
+
+impl ContainVariable for InBrackets {
+    fn variables(&self) -> BTreeSet<String> {
+        self.0.variables()
     }
 }
 
@@ -27,8 +34,9 @@ pub fn parse(code: &str) -> IResult<&str, InBrackets> {
 
 #[cfg(test)]
 mod tests {
-    use crate::formula::{Evaluative, And, Atom};
+    use crate::formula::{And, Atom};
 
+    use crate::Evaluatable;
     use std::collections::HashMap;
 
     use crate::formula::and::AndOperand;
