@@ -1,10 +1,11 @@
 #![feature(box_syntax)]
 #![feature(once_cell)]
 #![feature(map_first_last)]
-mod bdd;
+mod binary_decision_diagram;
+#[allow(clippy::bool_assert_comparison)]
 mod formula;
 
-use bdd::BDD;
+use binary_decision_diagram::BinaryDecisionDiagram;
 use enum_dispatch::enum_dispatch;
 use formula::and::AndOperand;
 use formula::not::NotOperand;
@@ -12,13 +13,13 @@ use formula::or::OrOperand;
 use formula::*;
 use std::collections::{BTreeSet, HashMap};
 #[enum_dispatch]
-trait Evaluatable {
+trait Evaluable {
     fn eval(&self, ctx: &HashMap<String, bool>) -> bool;
 }
 
-impl<T> Evaluatable for Box<T>
+impl<T> Evaluable for Box<T>
 where
-    T: Evaluatable,
+    T: Evaluable,
 {
     fn eval(&self, ctx: &HashMap<String, bool>) -> bool {
         Box::as_ref(self).eval(ctx)
@@ -40,6 +41,9 @@ where
 }
 
 fn main() {
-    let exp = expression::parse("false").unwrap().1;
-    println!("{}", BDD::from_formula(&exp).reduce().dot());
+    let exp = expression::parse("(a|b)&(c|d)&(e|f)").unwrap().1;
+    println!(
+        "{}",
+        BinaryDecisionDiagram::from_formula(&exp).reduce().dot()
+    );
 }

@@ -8,12 +8,12 @@ use nom::IResult;
 
 use super::expression;
 use super::Expression;
-use crate::{ContainVariable, Evaluatable};
+use crate::{ContainVariable, Evaluable};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InBrackets(pub Box<Expression>);
 
-impl Evaluatable for InBrackets {
+impl Evaluable for InBrackets {
     fn eval(&self, ctx: &HashMap<String, bool>) -> bool {
         self.0.eval(ctx)
     }
@@ -36,7 +36,7 @@ pub fn parse(code: &str) -> IResult<&str, InBrackets> {
 mod tests {
     use crate::formula::{And, Atom};
 
-    use crate::Evaluatable;
+    use crate::Evaluable;
     use std::collections::HashMap;
 
     use crate::formula::and::AndOperand;

@@ -1,41 +1,20 @@
-use std::{
-    cell::{LazyCell, OnceCell},
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
-};
+use std::collections::{HashMap, HashSet, VecDeque};
 
-use itertools::Itertools;
 use petgraph::{
-    data::DataMap,
     dot::Dot,
     stable_graph::{DefaultIx, NodeIndex, StableDiGraph},
-    visit::{EdgeRef, IntoEdgesDirected, IntoNodeReferences},
+    visit::{EdgeRef, IntoNodeReferences},
 };
 
 use crate::formula::Expression;
-use crate::{ContainVariable, Evaluatable};
+use crate::{ContainVariable, Evaluable};
 
 #[derive(Clone)]
-pub struct BDD {
+pub struct BinaryDecisionDiagram {
     graph: StableDiGraph<String, bool>,
 }
 
-const B0: LazyCell<BDD> = LazyCell::new(|| {
-    let mut g = StableDiGraph::new();
-    g.add_node("false".to_string());
-    BDD { graph: g }
-});
-
-const B1: LazyCell<BDD> = LazyCell::new(|| {
-    let mut g = StableDiGraph::new();
-    let nx = g.add_node("x".to_string());
-    let n0 = g.add_node("0".to_string());
-    let n1 = g.add_node("1".to_string());
-    g.add_edge(nx, n0, false);
-    g.add_edge(nx, n1, true);
-    BDD { graph: g }
-});
-
-impl BDD {
+impl BinaryDecisionDiagram {
     pub fn from_formula(formula: &Expression) -> Self {
         fn recursive_add_subgraph(
             graph: &mut StableDiGraph<String, bool>,
@@ -62,7 +41,7 @@ impl BDD {
                     current_variable_values,
                 );
 
-                current_variable_values.insert(current_variable.clone(), true);
+                current_variable_values.insert(current_variable, true);
                 recursive_add_subgraph(
                     graph,
                     formula,
@@ -149,31 +128,25 @@ impl BDD {
             let (false_child_in_new_graph, true_child_in_new_graph) =
                 self.children_in_new_graph(node_to_consider, &node_map);
             if false_child_in_new_graph == true_child_in_new_graph {
-                node_map.insert(node_to_consider, false_child_in_new_graph.clone());
+                node_map.insert(node_to_consider, *false_child_in_new_graph);
             } else {
                 let false_child_parents: HashSet<_> = new_graph
-                    .edges_directed(
-                        false_child_in_new_graph.clone(),
-                        petgraph::Direction::Incoming,
-                    )
+                    .edges_directed(*false_child_in_new_graph, petgraph::Direction::Incoming)
                     .map(|it| it.source())
                     .collect();
                 let true_child_parents: HashSet<_> = new_graph
-                    .edges_directed(
-                        true_child_in_new_graph.clone(),
-                        petgraph::Direction::Incoming,
-                    )
+                    .edges_directed(*true_child_in_new_graph, petgraph::Direction::Incoming)
                     .map(|it| it.source())
                     .collect();
                 if let Some(equiv_node) =
                     false_child_parents.intersection(&true_child_parents).next()
                 {
-                    node_map.insert(node_to_consider, equiv_node.clone());
+                    node_map.insert(node_to_consider, *equiv_node);
                 } else {
                     let new_node = new_graph
                         .add_node(self.graph.node_weight(node_to_consider).unwrap().clone());
-                    new_graph.add_edge(new_node.clone(), false_child_in_new_graph.clone(), false);
-                    new_graph.add_edge(new_node.clone(), true_child_in_new_graph.clone(), true);
+                    new_graph.add_edge(new_node, *false_child_in_new_graph, false);
+                    new_graph.add_edge(new_node, *true_child_in_new_graph, true);
                     node_map.insert(node_to_consider, new_node);
                 }
             }
@@ -193,14 +166,14 @@ impl BDD {
         let false_child = self
             .graph
             .edges_directed(node, petgraph::Direction::Outgoing)
-            .find(|it| *it.weight() == false)
+            .find(|it| !(*it.weight()))
             .unwrap()
             .target();
         let false_child_in_new_graph = node_map.get(&false_child).unwrap();
         let true_child = self
             .graph
             .edges_directed(node, petgraph::Direction::Outgoing)
-            .find(|it| *it.weight() == true)
+            .find(|it| *it.weight())
             .unwrap()
             .target();
         let true_child_in_new_graph = node_map.get(&true_child).unwrap();

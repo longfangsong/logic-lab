@@ -2,7 +2,7 @@ use nom::{
     branch::alt, bytes::complete::tag, character::complete::alpha1, combinator::map, IResult,
 };
 
-use crate::{ContainVariable, Evaluatable};
+use crate::{ContainVariable, Evaluable};
 use std::collections::{BTreeSet, HashMap};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -11,7 +11,7 @@ pub enum Atom {
     Const(bool),
 }
 
-impl Evaluatable for Atom {
+impl Evaluable for Atom {
     fn eval(&self, ctx: &HashMap<String, bool>) -> bool {
         match self {
             Atom::Variable(x) => *ctx.get(x).unwrap(),

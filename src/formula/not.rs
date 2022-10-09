@@ -11,9 +11,9 @@ use super::atom::Atom;
 use super::in_brackets::InBrackets;
 use super::{atom, in_brackets};
 
-use crate::{ContainVariable, Evaluatable};
+use crate::{ContainVariable, Evaluable};
 
-#[enum_dispatch(Evaluatable, ContainVariable)]
+#[enum_dispatch(Evaluable, ContainVariable)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum NotOperand {
     Atom,
@@ -24,7 +24,7 @@ pub(crate) enum NotOperand {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Not(pub(crate) NotOperand);
 
-impl Evaluatable for Not {
+impl Evaluable for Not {
     fn eval(&self, ctx: &HashMap<String, bool>) -> bool {
         !self.0.eval(ctx)
     }

@@ -12,9 +12,9 @@ use super::{atom, in_brackets, not};
 use crate::formula::atom::Atom;
 use crate::formula::in_brackets::InBrackets;
 use crate::formula::not::Not;
-use crate::{ContainVariable, Evaluatable};
+use crate::{ContainVariable, Evaluable};
 
-#[enum_dispatch(Evaluatable, ContainVariable)]
+#[enum_dispatch(Evaluable, ContainVariable)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AndOperand {
     Atom,
@@ -45,7 +45,7 @@ fn parse_higher_priority_operand(code: &str) -> IResult<&str, AndOperand> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct And(pub(crate) AndOperand, pub(crate) AndOperand);
 
-impl Evaluatable for And {
+impl Evaluable for And {
     fn eval(&self, ctx: &HashMap<String, bool>) -> bool {
         let And(lhs, rhs) = self;
         lhs.eval(ctx) && rhs.eval(ctx)

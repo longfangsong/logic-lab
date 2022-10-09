@@ -6,7 +6,7 @@ use crate::formula::and::And;
 use crate::formula::atom::Atom;
 use crate::formula::in_brackets::InBrackets;
 use crate::formula::not::Not;
-use crate::{ContainVariable, Evaluatable};
+use crate::{ContainVariable, Evaluable};
 use enum_dispatch::enum_dispatch;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
@@ -15,7 +15,7 @@ use nom::multi::fold_many0;
 use nom::sequence::preceded;
 use nom::IResult;
 
-#[enum_dispatch(Evaluatable, ContainVariable)]
+#[enum_dispatch(Evaluable, ContainVariable)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum OrOperand {
     Atom,
@@ -48,7 +48,7 @@ fn parse_higher_priority_operand(code: &str) -> IResult<&str, OrOperand> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Or(pub(crate) OrOperand, pub(crate) OrOperand);
 
-impl Evaluatable for Or {
+impl Evaluable for Or {
     fn eval(&self, ctx: &HashMap<String, bool>) -> bool {
         let Or(lhs, rhs) = self;
         lhs.eval(ctx) || rhs.eval(ctx)
