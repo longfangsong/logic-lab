@@ -2,6 +2,8 @@
 #![feature(once_cell)]
 #![feature(map_first_last)]
 mod binary_decision_diagram;
+
+// It is strange to assert the result of `eval` directly with `assert!`
 #[allow(clippy::bool_assert_comparison)]
 mod formula;
 
@@ -41,9 +43,9 @@ where
 }
 
 fn main() {
-    let exp = expression::parse("(a|b)&(c|d)&(e|f)").unwrap().1;
-    println!(
-        "{}",
-        BinaryDecisionDiagram::from_formula(&exp).reduce().dot()
-    );
+    let exp1 = expression::parse("a&b").unwrap().1;
+    let exp2 = expression::parse("a&c").unwrap().1;
+    let bdd1 = BinaryDecisionDiagram::from_formula(&exp1);
+    let bdd2 = BinaryDecisionDiagram::from_formula(&exp2);
+    println!("{}", bdd1.apply(&bdd2, |a, b| { a | b }).reduce().dot());
 }

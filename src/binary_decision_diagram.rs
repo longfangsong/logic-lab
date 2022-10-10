@@ -1,4 +1,7 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::{
+    cell::OnceCell,
+    collections::{BTreeSet, HashMap, HashSet, VecDeque},
+};
 
 use petgraph::{
     dot::Dot,
@@ -12,6 +15,15 @@ use crate::{ContainVariable, Evaluable};
 #[derive(Clone)]
 pub struct BinaryDecisionDiagram {
     graph: StableDiGraph<String, bool>,
+    variables_cache: OnceCell<BTreeSet<String>>,
+}
+
+impl ContainVariable for BinaryDecisionDiagram {
+    fn variables(&self) -> BTreeSet<String> {
+        self.variables_cache
+            .get_or_init(|| self.graph.node_weights().cloned().collect())
+            .clone()
+    }
 }
 
 impl BinaryDecisionDiagram {
@@ -70,10 +82,35 @@ impl BinaryDecisionDiagram {
             variables_iter,
             &mut current_variable_values,
         );
-        Self { graph }
+        let variables_cell = OnceCell::new();
+        variables_cell.set(variables).unwrap();
+        Self {
+            graph,
+            variables_cache: variables_cell,
+        }
     }
 
     pub fn reduce(self) -> Self {
+        fn children_in_new_graph<'a>(
+            old_graph: &StableDiGraph<String, bool>,
+            node: NodeIndex,
+            node_map: &'a HashMap<NodeIndex, NodeIndex>,
+        ) -> (&'a NodeIndex, &'a NodeIndex) {
+            let false_child = old_graph
+                .edges_directed(node, petgraph::Direction::Outgoing)
+                .find(|it| !(*it.weight()))
+                .unwrap()
+                .target();
+            let false_child_in_new_graph = node_map.get(&false_child).unwrap();
+            let true_child = old_graph
+                .edges_directed(node, petgraph::Direction::Outgoing)
+                .find(|it| *it.weight())
+                .unwrap()
+                .target();
+            let true_child_in_new_graph = node_map.get(&true_child).unwrap();
+            (false_child_in_new_graph, true_child_in_new_graph)
+        }
+
         let mut new_graph = StableDiGraph::new();
         let mut node_map = HashMap::new();
         let mut nodes_to_consider = VecDeque::new();
@@ -126,7 +163,7 @@ impl BinaryDecisionDiagram {
                 continue;
             }
             let (false_child_in_new_graph, true_child_in_new_graph) =
-                self.children_in_new_graph(node_to_consider, &node_map);
+                children_in_new_graph(&self.graph, node_to_consider, &node_map);
             if false_child_in_new_graph == true_child_in_new_graph {
                 node_map.insert(node_to_consider, *false_child_in_new_graph);
             } else {
@@ -155,29 +192,180 @@ impl BinaryDecisionDiagram {
                 .neighbors_directed(node_to_consider, petgraph::Direction::Incoming);
             nodes_to_consider.extend(parent_nodes);
         }
-        Self { graph: new_graph }
+        Self {
+            graph: new_graph,
+            variables_cache: self.variables_cache,
+        }
     }
 
-    fn children_in_new_graph<'a>(
-        &self,
-        node: NodeIndex,
-        node_map: &'a HashMap<NodeIndex, NodeIndex>,
-    ) -> (&'a NodeIndex, &'a NodeIndex) {
-        let false_child = self
-            .graph
-            .edges_directed(node, petgraph::Direction::Outgoing)
-            .find(|it| !(*it.weight()))
+    fn root_in_graph(graph: &StableDiGraph<String, bool>) -> NodeIndex {
+        graph
+            .node_indices()
+            .find(|it| {
+                graph
+                    .neighbors_directed(*it, petgraph::Direction::Incoming)
+                    .count()
+                    == 0
+            })
             .unwrap()
-            .target();
-        let false_child_in_new_graph = node_map.get(&false_child).unwrap();
-        let true_child = self
-            .graph
-            .edges_directed(node, petgraph::Direction::Outgoing)
-            .find(|it| *it.weight())
-            .unwrap()
-            .target();
-        let true_child_in_new_graph = node_map.get(&true_child).unwrap();
-        (false_child_in_new_graph, true_child_in_new_graph)
+    }
+
+    #[allow(clippy::bool_comparison)]
+    pub fn apply(&self, other: &Self, f: fn(bool, bool) -> bool) -> Self {
+        fn recursive_apply(
+            graph: &mut StableDiGraph<String, bool>,
+            f: fn(bool, bool) -> bool,
+            lhs_graph: &StableDiGraph<String, bool>,
+            lhs_cursor: NodeIndex,
+            rhs_graph: &StableDiGraph<String, bool>,
+            rhs_cursor: NodeIndex,
+        ) -> NodeIndex {
+            fn explore_left(
+                graph: &mut StableDiGraph<String, bool>,
+                f: fn(bool, bool) -> bool,
+                lhs_graph: &StableDiGraph<String, bool>,
+                rhs_graph: &StableDiGraph<String, bool>,
+                lhs_cursor: NodeIndex,
+                rhs_cursor: NodeIndex,
+                lhs_value: &str,
+            ) -> NodeIndex {
+                let node = graph.add_node(lhs_value.to_string());
+
+                let lhs_cursor_left = lhs_graph
+                    .edges_directed(lhs_cursor, petgraph::Direction::Outgoing)
+                    .find(|it| *it.weight() == false)
+                    .unwrap()
+                    .target();
+                let lhs_node_left =
+                    recursive_apply(graph, f, lhs_graph, lhs_cursor_left, rhs_graph, rhs_cursor);
+                graph.add_edge(node, lhs_node_left, false);
+
+                let lhs_cursor_right = lhs_graph
+                    .edges_directed(lhs_cursor, petgraph::Direction::Outgoing)
+                    .find(|it| *it.weight() == true)
+                    .unwrap()
+                    .target();
+                let lhs_node_right =
+                    recursive_apply(graph, f, lhs_graph, lhs_cursor_right, rhs_graph, rhs_cursor);
+                graph.add_edge(node, lhs_node_right, true);
+
+                node
+            }
+            fn explore_right(
+                graph: &mut StableDiGraph<String, bool>,
+                f: fn(bool, bool) -> bool,
+                lhs_graph: &StableDiGraph<String, bool>,
+                rhs_graph: &StableDiGraph<String, bool>,
+                lhs_cursor: NodeIndex,
+                rhs_cursor: NodeIndex,
+                rhs_value: &str,
+            ) -> NodeIndex {
+                let node = graph.add_node(rhs_value.to_string());
+
+                let rhs_cursor_left = rhs_graph
+                    .edges_directed(rhs_cursor, petgraph::Direction::Outgoing)
+                    .find(|it| *it.weight() == false)
+                    .unwrap()
+                    .target();
+                let rhs_node_left =
+                    recursive_apply(graph, f, lhs_graph, lhs_cursor, rhs_graph, rhs_cursor_left);
+                graph.add_edge(node, rhs_node_left, false);
+
+                let rhs_cursor_right = rhs_graph
+                    .edges_directed(rhs_cursor, petgraph::Direction::Outgoing)
+                    .find(|it| *it.weight() == true)
+                    .unwrap()
+                    .target();
+                let rhs_node_right =
+                    recursive_apply(graph, f, lhs_graph, lhs_cursor, rhs_graph, rhs_cursor_right);
+                graph.add_edge(node, rhs_node_right, true);
+
+                node
+            }
+            let mut explore_both =
+                |lhs_cursor: NodeIndex, rhs_cursor: NodeIndex, value: &str| -> NodeIndex {
+                    let node = graph.add_node(value.to_string());
+                    let lhs_cursor_left = lhs_graph
+                        .edges_directed(lhs_cursor, petgraph::Direction::Outgoing)
+                        .find(|it| *it.weight() == false)
+                        .unwrap()
+                        .target();
+                    let rhs_cursor_left = rhs_graph
+                        .edges_directed(rhs_cursor, petgraph::Direction::Outgoing)
+                        .find(|it| *it.weight() == false)
+                        .unwrap()
+                        .target();
+                    let node_left = recursive_apply(
+                        graph,
+                        f,
+                        lhs_graph,
+                        lhs_cursor_left,
+                        rhs_graph,
+                        rhs_cursor_left,
+                    );
+                    graph.add_edge(node, node_left, false);
+
+                    let lhs_cursor_right = lhs_graph
+                        .edges_directed(lhs_cursor, petgraph::Direction::Outgoing)
+                        .find(|it| *it.weight() == true)
+                        .unwrap()
+                        .target();
+                    let rhs_cursor_right = rhs_graph
+                        .edges_directed(rhs_cursor, petgraph::Direction::Outgoing)
+                        .find(|it| *it.weight() == true)
+                        .unwrap()
+                        .target();
+                    let node_right = recursive_apply(
+                        graph,
+                        f,
+                        lhs_graph,
+                        lhs_cursor_right,
+                        rhs_graph,
+                        rhs_cursor_right,
+                    );
+                    graph.add_edge(node, node_right, true);
+
+                    node
+                };
+            let lhs_value = lhs_graph.node_weight(lhs_cursor).unwrap();
+            let rhs_value = rhs_graph.node_weight(rhs_cursor).unwrap();
+            match (lhs_value.as_str(), rhs_value.as_str()) {
+                ("true", "true") | ("true", "false") | ("false", "true") | ("false", "false") => {
+                    let lhs_value = lhs_value == "true";
+                    let rhs_value = rhs_value == "true";
+                    let result = f(lhs_value, rhs_value);
+                    graph.add_node(result.to_string())
+                }
+                (lhs, "true") | (lhs, "false") => {
+                    explore_left(graph, f, lhs_graph, rhs_graph, lhs_cursor, rhs_cursor, lhs)
+                }
+                ("true", rhs) | ("false", rhs) => {
+                    explore_right(graph, f, lhs_graph, rhs_graph, lhs_cursor, rhs_cursor, rhs)
+                }
+                (lhs, rhs) if lhs < rhs => {
+                    explore_left(graph, f, lhs_graph, rhs_graph, lhs_cursor, rhs_cursor, lhs)
+                }
+                (lhs, rhs) if lhs > rhs => {
+                    explore_right(graph, f, lhs_graph, rhs_graph, lhs_cursor, rhs_cursor, rhs)
+                }
+                (lhs, _rhs) => explore_both(lhs_cursor, rhs_cursor, lhs),
+            }
+        }
+        let mut new_graph = StableDiGraph::new();
+        let lhs_cursor = Self::root_in_graph(&self.graph);
+        let rhs_cursor = Self::root_in_graph(&other.graph);
+        recursive_apply(
+            &mut new_graph,
+            f,
+            &self.graph,
+            lhs_cursor,
+            &other.graph,
+            rhs_cursor,
+        );
+        Self {
+            graph: new_graph,
+            variables_cache: OnceCell::new(),
+        }
     }
 
     pub fn dot(&self) -> String {
