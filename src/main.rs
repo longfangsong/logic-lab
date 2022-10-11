@@ -47,5 +47,7 @@ fn main() {
     let exp2 = expression::parse("a&c").unwrap().1;
     let bdd1 = BinaryDecisionDiagram::from_formula(&exp1);
     let bdd2 = BinaryDecisionDiagram::from_formula(&exp2);
-    println!("{}", bdd1.apply(&bdd2, |a, b| { a | b }).reduce().dot());
+    let mut bdd3 = bdd1.apply(&bdd2, |a, b| a | b).reduce();
+    bdd3.restrict("b", false);
+    println!("{}", bdd3.dot());
 }

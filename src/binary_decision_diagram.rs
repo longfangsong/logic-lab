@@ -368,6 +368,33 @@ impl BinaryDecisionDiagram {
         }
     }
 
+    pub fn restrict(&mut self, variable_name: &str, variable_value: bool) {
+        let nodes: Vec<NodeIndex> = self
+            .graph
+            .node_references()
+            .filter(|(_, weight)| *weight == variable_name)
+            .map(|(index, _)| index)
+            .collect();
+        for node in nodes {
+            let incoming_edges: Vec<_> = self
+                .graph
+                .edges_directed(node, petgraph::Direction::Incoming)
+                .map(|it| (it.id(), it.source(), *it.weight()))
+                .collect();
+            let redirect_to = self
+                .graph
+                .edges_directed(node, petgraph::Direction::Outgoing)
+                .find(|it| *it.weight() == variable_value)
+                .unwrap()
+                .target();
+            for (id, source, weight) in incoming_edges {
+                self.graph.add_edge(source, redirect_to, weight);
+                self.graph.remove_edge(id);
+            }
+            self.graph.remove_node(node);
+        }
+    }
+
     pub fn dot(&self) -> String {
         Dot::new(&self.graph).to_string()
     }
