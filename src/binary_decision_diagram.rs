@@ -395,6 +395,22 @@ impl BinaryDecisionDiagram {
         }
     }
 
+    pub fn exists(&self, variable_name: &str) -> Self {
+        let mut restrict_false = self.clone();
+        restrict_false.restrict(variable_name, false);
+        let mut restrict_true = self.clone();
+        restrict_true.restrict(variable_name, true);
+        restrict_false.apply(&restrict_true, |a, b| a || b).reduce()
+    }
+
+    pub fn universal(&self, variable_name: &str) -> Self {
+        let mut restrict_false = self.clone();
+        restrict_false.restrict(variable_name, false);
+        let mut restrict_true = self.clone();
+        restrict_true.restrict(variable_name, true);
+        restrict_false.apply(&restrict_true, |a, b| a && b).reduce()
+    }
+
     pub fn dot(&self) -> String {
         Dot::new(&self.graph).to_string()
     }
