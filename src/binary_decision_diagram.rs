@@ -8,10 +8,12 @@ use petgraph::{
     stable_graph::{DefaultIx, NodeIndex, StableDiGraph},
     visit::{EdgeRef, IntoNodeReferences},
 };
+use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::formula::Expression;
+use crate::formula::{Expression, expression};
 use crate::{ContainVariable, Evaluable};
 
+#[wasm_bindgen]
 #[derive(Clone)]
 pub struct BinaryDecisionDiagram {
     graph: StableDiGraph<String, bool>,
@@ -26,70 +28,8 @@ impl ContainVariable for BinaryDecisionDiagram {
     }
 }
 
+#[wasm_bindgen]
 impl BinaryDecisionDiagram {
-    pub fn from_formula(formula: &Expression) -> Self {
-        fn recursive_add_subgraph(
-            graph: &mut StableDiGraph<String, bool>,
-            formula: &Expression,
-            last_node_index: Option<NodeIndex<DefaultIx>>,
-            last_node_value: bool,
-            mut remain_variables: impl Iterator<Item = String> + Clone,
-            current_variable_values: &mut HashMap<String, bool>,
-        ) {
-            let current_variable = remain_variables.next();
-            if let Some(current_variable) = current_variable {
-                let node = graph.add_node(current_variable.clone());
-                if let Some(last_node_index) = last_node_index {
-                    graph.add_edge(last_node_index, node, last_node_value);
-                }
-
-                current_variable_values.insert(current_variable.clone(), false);
-                recursive_add_subgraph(
-                    graph,
-                    formula,
-                    Some(node),
-                    false,
-                    remain_variables.clone(),
-                    current_variable_values,
-                );
-
-                current_variable_values.insert(current_variable, true);
-                recursive_add_subgraph(
-                    graph,
-                    formula,
-                    Some(node),
-                    true,
-                    remain_variables,
-                    current_variable_values,
-                );
-            } else {
-                let value = formula.eval(current_variable_values);
-                let node = graph.add_node(value.to_string());
-                if let Some(last_node_index) = last_node_index {
-                    graph.add_edge(last_node_index, node, last_node_value);
-                }
-            }
-        }
-        let variables = formula.variables();
-        let variables_iter = variables.iter().cloned();
-        let mut graph = StableDiGraph::new();
-        let mut current_variable_values = HashMap::new();
-        recursive_add_subgraph(
-            &mut graph,
-            formula,
-            None,
-            false,
-            variables_iter,
-            &mut current_variable_values,
-        );
-        let variables_cell = OnceCell::new();
-        variables_cell.set(variables).unwrap();
-        Self {
-            graph,
-            variables_cache: variables_cell,
-        }
-    }
-
     pub fn reduce(self) -> Self {
         fn children_in_new_graph<'a>(
             old_graph: &StableDiGraph<String, bool>,
@@ -210,6 +150,118 @@ impl BinaryDecisionDiagram {
             .unwrap()
     }
 
+    pub fn restrict(&mut self, variable_name: &str, variable_value: bool) {
+        let nodes: Vec<NodeIndex> = self
+            .graph
+            .node_references()
+            .filter(|(_, weight)| *weight == variable_name)
+            .map(|(index, _)| index)
+            .collect();
+        for node in nodes {
+            let incoming_edges: Vec<_> = self
+                .graph
+                .edges_directed(node, petgraph::Direction::Incoming)
+                .map(|it| (it.id(), it.source(), *it.weight()))
+                .collect();
+            let redirect_to = self
+                .graph
+                .edges_directed(node, petgraph::Direction::Outgoing)
+                .find(|it| *it.weight() == variable_value)
+                .unwrap()
+                .target();
+            for (id, source, weight) in incoming_edges {
+                self.graph.add_edge(source, redirect_to, weight);
+                self.graph.remove_edge(id);
+            }
+            self.graph.remove_node(node);
+        }
+    }
+
+    pub fn exists(&self, variable_name: &str) -> Self {
+        let mut restrict_false = self.clone();
+        restrict_false.restrict(variable_name, false);
+        let mut restrict_true = self.clone();
+        restrict_true.restrict(variable_name, true);
+        restrict_false.apply(&restrict_true, |a, b| a || b).reduce()
+    }
+
+    pub fn universal(&self, variable_name: &str) -> Self {
+        let mut restrict_false = self.clone();
+        restrict_false.restrict(variable_name, false);
+        let mut restrict_true = self.clone();
+        restrict_true.restrict(variable_name, true);
+        restrict_false.apply(&restrict_true, |a, b| a && b).reduce()
+    }
+
+    pub fn dot(&self) -> String {
+        Dot::new(&self.graph).to_string()
+    }
+}
+
+impl BinaryDecisionDiagram {
+    pub fn from_formula(formula: &Expression) -> Self {
+        fn recursive_add_subgraph(
+            graph: &mut StableDiGraph<String, bool>,
+            formula: &Expression,
+            last_node_index: Option<NodeIndex<DefaultIx>>,
+            last_node_value: bool,
+            mut remain_variables: impl Iterator<Item = String> + Clone,
+            current_variable_values: &mut HashMap<String, bool>,
+        ) {
+            let current_variable = remain_variables.next();
+            if let Some(current_variable) = current_variable {
+                let node = graph.add_node(current_variable.clone());
+                if let Some(last_node_index) = last_node_index {
+                    graph.add_edge(last_node_index, node, last_node_value);
+                }
+
+                current_variable_values.insert(current_variable.clone(), false);
+                recursive_add_subgraph(
+                    graph,
+                    formula,
+                    Some(node),
+                    false,
+                    remain_variables.clone(),
+                    current_variable_values,
+                );
+
+                current_variable_values.insert(current_variable, true);
+                recursive_add_subgraph(
+                    graph,
+                    formula,
+                    Some(node),
+                    true,
+                    remain_variables,
+                    current_variable_values,
+                );
+            } else {
+                let value = formula.eval(current_variable_values);
+                let node = graph.add_node(value.to_string());
+                if let Some(last_node_index) = last_node_index {
+                    graph.add_edge(last_node_index, node, last_node_value);
+                }
+            }
+        }
+        let variables = formula.variables();
+        let variables_iter = variables.iter().cloned();
+        let mut graph = StableDiGraph::new();
+        let mut current_variable_values = HashMap::new();
+        recursive_add_subgraph(
+            &mut graph,
+            formula,
+            None,
+            false,
+            variables_iter,
+            &mut current_variable_values,
+        );
+        let variables_cell = OnceCell::new();
+        variables_cell.set(variables).unwrap();
+        Self {
+            graph,
+            variables_cache: variables_cell,
+        }
+    }
+    
     #[allow(clippy::bool_comparison)]
     pub fn apply(&self, other: &Self, f: fn(bool, bool) -> bool) -> Self {
         fn recursive_apply(
@@ -367,51 +419,20 @@ impl BinaryDecisionDiagram {
             variables_cache: OnceCell::new(),
         }
     }
+}
 
-    pub fn restrict(&mut self, variable_name: &str, variable_value: bool) {
-        let nodes: Vec<NodeIndex> = self
-            .graph
-            .node_references()
-            .filter(|(_, weight)| *weight == variable_name)
-            .map(|(index, _)| index)
-            .collect();
-        for node in nodes {
-            let incoming_edges: Vec<_> = self
-                .graph
-                .edges_directed(node, petgraph::Direction::Incoming)
-                .map(|it| (it.id(), it.source(), *it.weight()))
-                .collect();
-            let redirect_to = self
-                .graph
-                .edges_directed(node, petgraph::Direction::Outgoing)
-                .find(|it| *it.weight() == variable_value)
-                .unwrap()
-                .target();
-            for (id, source, weight) in incoming_edges {
-                self.graph.add_edge(source, redirect_to, weight);
-                self.graph.remove_edge(id);
-            }
-            self.graph.remove_node(node);
-        }
+#[wasm_bindgen]
+impl BinaryDecisionDiagram {
+    pub fn from_str(code: &str) -> Self {
+        let expr = expression::parse(code).unwrap().1;
+        BinaryDecisionDiagram::from_formula(&expr)
     }
 
-    pub fn exists(&self, variable_name: &str) -> Self {
-        let mut restrict_false = self.clone();
-        restrict_false.restrict(variable_name, false);
-        let mut restrict_true = self.clone();
-        restrict_true.restrict(variable_name, true);
-        restrict_false.apply(&restrict_true, |a, b| a || b).reduce()
+    pub fn or(&self, other: &BinaryDecisionDiagram) -> Self {
+        self.apply(other, |lhs, rhs| lhs || rhs)
     }
-
-    pub fn universal(&self, variable_name: &str) -> Self {
-        let mut restrict_false = self.clone();
-        restrict_false.restrict(variable_name, false);
-        let mut restrict_true = self.clone();
-        restrict_true.restrict(variable_name, true);
-        restrict_false.apply(&restrict_true, |a, b| a && b).reduce()
-    }
-
-    pub fn dot(&self) -> String {
-        Dot::new(&self.graph).to_string()
+    
+    pub fn and(&self, other: &BinaryDecisionDiagram) -> Self {
+        self.apply(other, |lhs, rhs| lhs && rhs)
     }
 }

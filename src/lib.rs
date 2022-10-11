@@ -7,7 +7,6 @@ mod binary_decision_diagram;
 #[allow(clippy::bool_assert_comparison)]
 mod formula;
 
-use binary_decision_diagram::BinaryDecisionDiagram;
 use enum_dispatch::enum_dispatch;
 use formula::and::AndOperand;
 use formula::not::NotOperand;
@@ -42,12 +41,8 @@ where
     }
 }
 
-fn main() {
-    let exp1 = expression::parse("a&b").unwrap().1;
-    let exp2 = expression::parse("a&c").unwrap().1;
-    let bdd1 = BinaryDecisionDiagram::from_formula(&exp1);
-    let bdd2 = BinaryDecisionDiagram::from_formula(&exp2);
-    let bdd3 = bdd1.apply(&bdd2, |a, b| a || b).reduce();
-
-    println!("{}", bdd3.exists("a").dot());
-}
+// When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
+// allocator.
+#[cfg(feature = "wee_alloc")]
+#[global_allocator]
+static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;

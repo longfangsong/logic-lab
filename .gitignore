@@ -1,3 +1,5 @@
 /target
 Cargo.lock
 *.dot
+/pkg
+.DS_Store
