@@ -1,6 +1,6 @@
 use std::{
     cell::OnceCell,
-    collections::{BTreeSet, HashMap, HashSet, VecDeque},
+    collections::{BTreeSet, HashMap, HashSet, BinaryHeap},
 };
 
 use petgraph::{
@@ -30,6 +30,7 @@ impl ContainVariable for BinaryDecisionDiagram {
 
 #[wasm_bindgen]
 impl BinaryDecisionDiagram {
+    #[allow(clippy::bool_comparison)]
     pub fn reduce(self) -> Self {
         fn children_in_new_graph<'a>(
             old_graph: &StableDiGraph<String, bool>,
@@ -53,7 +54,22 @@ impl BinaryDecisionDiagram {
 
         let mut new_graph = StableDiGraph::new();
         let mut node_map = HashMap::new();
-        let mut nodes_to_consider = VecDeque::new();
+
+        #[derive(Eq, Ord)]
+        struct Weight<'a>(NodeIndex, &'a String);
+        impl<'a> std::cmp::PartialEq for Weight<'a> {
+            fn eq(&self, other: &Self) -> bool {
+                self.1.eq(other.1)
+            }
+        }
+
+        impl<'a> std::cmp::PartialOrd for Weight<'a> {
+            fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+                self.1.partial_cmp(other.1)
+            }
+        }
+
+        let mut nodes_to_consider = BinaryHeap::new();
         let false_nodes = self.graph.node_references().filter_map(|it| {
             if it.1 == "false" {
                 Some(it.0)
@@ -77,7 +93,8 @@ impl BinaryDecisionDiagram {
             node_map.insert(node, new_false_node);
             let parent_nodes = self
                 .graph
-                .neighbors_directed(node, petgraph::Direction::Incoming);
+                .neighbors_directed(node, petgraph::Direction::Incoming)
+                .map(|it| Weight(it, self.graph.node_weight(it).unwrap()));
             nodes_to_consider.extend(parent_nodes);
             false_node_exists = true;
         }
@@ -90,7 +107,8 @@ impl BinaryDecisionDiagram {
             node_map.insert(node, new_true_node);
             let parent_nodes = self
                 .graph
-                .neighbors_directed(node, petgraph::Direction::Incoming);
+                .neighbors_directed(node, petgraph::Direction::Incoming)
+                .map(|it| Weight(it, self.graph.node_weight(it).unwrap()));
             nodes_to_consider.extend(parent_nodes);
             true_node_exists = true;
         }
@@ -98,7 +116,7 @@ impl BinaryDecisionDiagram {
             new_graph.remove_node(new_true_node);
         }
         while !nodes_to_consider.is_empty() {
-            let node_to_consider = nodes_to_consider.pop_front().unwrap();
+            let Weight(node_to_consider, _) = nodes_to_consider.pop().unwrap();
             if node_map.contains_key(&node_to_consider) {
                 continue;
             }
@@ -109,10 +127,12 @@ impl BinaryDecisionDiagram {
             } else {
                 let false_child_parents: HashSet<_> = new_graph
                     .edges_directed(*false_child_in_new_graph, petgraph::Direction::Incoming)
+                    .filter(|it| *it.weight() == false)
                     .map(|it| it.source())
                     .collect();
                 let true_child_parents: HashSet<_> = new_graph
                     .edges_directed(*true_child_in_new_graph, petgraph::Direction::Incoming)
+                    .filter(|it| *it.weight() == true)
                     .map(|it| it.source())
                     .collect();
                 if let Some(equiv_node) =
@@ -129,7 +149,8 @@ impl BinaryDecisionDiagram {
             }
             let parent_nodes = self
                 .graph
-                .neighbors_directed(node_to_consider, petgraph::Direction::Incoming);
+                .neighbors_directed(node_to_consider, petgraph::Direction::Incoming)
+                .map(|it| Weight(it, self.graph.node_weight(it).unwrap()));
             nodes_to_consider.extend(parent_nodes);
         }
         Self {
@@ -400,7 +421,7 @@ impl BinaryDecisionDiagram {
                 (lhs, rhs) if lhs > rhs => {
                     explore_right(graph, f, lhs_graph, rhs_graph, lhs_cursor, rhs_cursor, rhs)
                 }
-                (lhs, _rhs) => explore_both(lhs_cursor, rhs_cursor, lhs),
+                (lhs, _rhs) => explore_both(lhs_cursor, rhs_cursor, lhs)
             }
         }
         let mut new_graph = StableDiGraph::new();
